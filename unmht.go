@@ -122,7 +122,7 @@ func replaceURLsInHTML(base *url.URL, data []byte, addOnLoad bool) ([]byte, erro
 	})
 
 	if addOnLoad {
-		d.Find("head").First().AfterHtml(`<script>
+		d.Find("head").First().AppendHtml(`<script>
 window.onload = function() {
   var req = new XMLHttpRequest();
   req.open('GET', '/done-signal');
