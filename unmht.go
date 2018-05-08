@@ -205,10 +205,11 @@ func main() {
 		if part.Header.Get("Content-Transfer-Encoding") == "base64" {
 			n := base64.StdEncoding.DecodedLen(len(data))
 			buf := make([]byte, n)
-			if _, err := base64.StdEncoding.Decode(buf, data); err != nil {
+			n, err := base64.StdEncoding.Decode(buf, data)
+			if err != nil {
 				log.Fatal(err)
 			}
-			data = buf
+			data = buf[:n]
 		}
 
 		contentType := part.Header.Get("Content-Type")
