@@ -62,7 +62,7 @@ func makeAbs(base *url.URL, url string) string {
 	if strings.HasPrefix(url, "/") {
 		return base.Scheme + "://" + base.Host + url
 	}
-	return base.Scheme + "://" + base.Host + path.Dir(base.Path) + "/" + url
+	return base.Scheme + "://" + base.Host + path.Join("/", path.Dir(base.Path), url)
 }
 
 func replaceURLsInCSS(base *url.URL, data []byte) []byte {
@@ -77,10 +77,21 @@ func replaceURLsInCSS(base *url.URL, data []byte) []byte {
 	})
 }
 
-func replaceURLsInHTML(base *url.URL, data []byte) ([]byte, error) {
+func replaceURLsInHTML(base *url.URL, data []byte, addOnLoad bool) ([]byte, error) {
 	d, err := goquery.NewDocumentFromReader(bytes.NewReader(data))
 	if err != nil {
 		return nil, err
+	}
+
+	redefinedBase := d.Find("head > base[href]")
+	if redefinedBase.Length() > 0 {
+		href, _ := redefinedBase.First().Attr("href")
+		u, err := url.Parse(href)
+		if err != nil {
+			return nil, err
+		}
+		base = u
+		redefinedBase.Remove()
 	}
 
 	for _, attr := range []string{"src", "href", "background"} {
@@ -110,6 +121,16 @@ func replaceURLsInHTML(base *url.URL, data []byte) ([]byte, error) {
 		sel.SetAttr("style", style)
 	})
 
+	if addOnLoad {
+		d.Find("head").First().AfterHtml(`<script>
+window.onload = function() {
+  var req = new XMLHttpRequest();
+  req.open('GET', '/done-signal');
+  req.send();
+};
+</script>`)
+	}
+
 	html, err := d.Html()
 	if err != nil {
 		return nil, err
@@ -119,6 +140,9 @@ func replaceURLsInHTML(base *url.URL, data []byte) ([]byte, error) {
 
 func handler(w http.ResponseWriter, r *http.Request) {
 	url := strings.TrimPrefix(r.URL.Path, "/")
+	if url == "done-signal" {
+		os.Exit(0)
+	}
 	file, ok := files[url]
 	if !ok {
 		http.NotFound(w, r)
@@ -191,13 +215,13 @@ func main() {
 		if contentType == "text/css" {
 			data = replaceURLsInCSS(base, data)
 		} else if contentType == "text/html" || strings.HasPrefix(contentType, "text/html;") {
-			if initialLoc == "" {
-				initialLoc = contentLocation
-			}
 			var err error
-			data, err = replaceURLsInHTML(base, data)
+			data, err = replaceURLsInHTML(base, data, initialLoc == "")
 			if err != nil {
 				log.Fatal(err)
+			}
+			if initialLoc == "" {
+				initialLoc = contentLocation
 			}
 		}
 		files[contentLocation] = file{contentType, data}
