@@ -144,15 +144,28 @@ window.onload = function() {
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
-	url := strings.TrimPrefix(r.URL.Path, "/")
-	if url == "done-signal" {
+	if r.URL.Path == "/done-signal" {
 		os.Exit(0)
 	}
+
+	url := strings.TrimPrefix(r.URL.Path, "/")
 	file, ok := files[url]
 	if !ok {
-		http.NotFound(w, r)
-		return
+		found := false
+		lower := strings.ToLower(url)
+		for k, f := range files {
+			if strings.ToLower(k) == lower {
+				found = true
+				file = f
+				break
+			}
+		}
+		if !found {
+			http.NotFound(w, r)
+			return
+		}
 	}
+
 	w.Header().Add("Content-Type", file.contentType)
 	w.Write(file.data)
 }
