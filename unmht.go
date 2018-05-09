@@ -167,6 +167,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Add("Content-Type", file.contentType)
+	w.Header().Add("Content-Length", fmt.Sprint(len(file.data)))
 	w.Write(file.data)
 }
 
