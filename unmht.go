@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/andybalholm/cascadia"
 	"github.com/pkg/browser"
 )
 
@@ -94,8 +95,12 @@ func replaceURLsInHTML(base *url.URL, data []byte, addOnLoad bool) ([]byte, erro
 		redefinedBase.Remove()
 	}
 
+	m := cascadia.MustCompile("a[href]")
 	for _, attr := range []string{"src", "href", "background"} {
 		d.Find("[" + attr + "]").Each(func(_ int, sel *goquery.Selection) {
+			if sel.IsMatcher(m) {
+				return
+			}
 			v, _ := sel.Attr(attr)
 			if strings.HasPrefix(v, "data:") {
 				return
