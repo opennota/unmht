@@ -118,6 +118,8 @@ func modifyHTML(base *url.URL, data []byte, addOnLoad bool) ([]byte, error) {
 			}
 			v = abs(base, v)
 			sel.SetAttr(attr, "/"+url.PathEscape(v))
+
+			sel.RemoveAttr("integrity")
 		})
 	}
 	d.Find("style").Each(func(_ int, sel *goquery.Selection) {
