@@ -41,7 +41,9 @@ import (
 
 type file struct {
 	contentType string
+	base        *url.URL
 	data        []byte
+	initial     bool
 }
 
 var (
@@ -50,10 +52,11 @@ var (
 	rWithProto = regexp.MustCompile("^[a-z]+:")
 	rURL       = regexp.MustCompile(`\burl\(([^()]+)\)`)
 
-	files = make(map[string]file)
+	files   = make(map[string]*file)
+	cid2loc = make(map[string]string)
 )
 
-func makeAbs(base *url.URL, url string) string {
+func abs(base *url.URL, url string) string {
 	if rWithProto.MatchString(url) {
 		return url
 	}
@@ -66,19 +69,23 @@ func makeAbs(base *url.URL, url string) string {
 	return base.Scheme + "://" + base.Host + path.Join("/", path.Dir(base.Path), url)
 }
 
-func replaceURLsInCSS(base *url.URL, data []byte) []byte {
+func modifyCSS(base *url.URL, data []byte) []byte {
 	return rURL.ReplaceAllFunc(data, func(d []byte) []byte {
 		u := string(d[4 : len(d)-1])
 		u = strings.Trim(u, `"'`)
 		if strings.HasPrefix(u, "data:") || strings.HasPrefix(u, "mailto:") {
 			return d
 		}
-		u = makeAbs(base, u)
+		if strings.HasPrefix(u, "cid:") {
+			cid := strings.TrimPrefix(u, "cid:")
+			u = cid2loc[cid]
+		}
+		u = abs(base, u)
 		return []byte("url(/" + url.PathEscape(u) + ")")
 	})
 }
 
-func replaceURLsInHTML(base *url.URL, data []byte, addOnLoad bool) ([]byte, error) {
+func modifyHTML(base *url.URL, data []byte, addOnLoad bool) ([]byte, error) {
 	d, err := goquery.NewDocumentFromReader(bytes.NewReader(data))
 	if err != nil {
 		return nil, err
@@ -105,7 +112,11 @@ func replaceURLsInHTML(base *url.URL, data []byte, addOnLoad bool) ([]byte, erro
 			if strings.HasPrefix(v, "data:") || strings.HasPrefix(v, "mailto:") {
 				return
 			}
-			v = makeAbs(base, v)
+			if strings.HasPrefix(v, "cid:") {
+				cid := strings.TrimPrefix(v, "cid:")
+				v = cid2loc[cid]
+			}
+			v = abs(base, v)
 			sel.SetAttr(attr, "/"+url.PathEscape(v))
 		})
 	}
@@ -114,7 +125,7 @@ func replaceURLsInHTML(base *url.URL, data []byte, addOnLoad bool) ([]byte, erro
 		if !strings.Contains(style, "url(") {
 			return
 		}
-		style = string(replaceURLsInCSS(base, []byte(style)))
+		style = string(modifyCSS(base, []byte(style)))
 		sel.SetText(style)
 	})
 	d.Find("[style]").Each(func(_ int, sel *goquery.Selection) {
@@ -122,7 +133,7 @@ func replaceURLsInHTML(base *url.URL, data []byte, addOnLoad bool) ([]byte, erro
 		if !strings.Contains(style, "url(") {
 			return
 		}
-		style = string(replaceURLsInCSS(base, []byte(style)))
+		style = string(modifyCSS(base, []byte(style)))
 		sel.SetAttr("style", style)
 	})
 
@@ -231,24 +242,34 @@ func main() {
 			data = buf[:n]
 		}
 
-		contentType := part.Header.Get("Content-Type")
-		if contentType == "text/css" {
-			data = replaceURLsInCSS(base, data)
-		} else if contentType == "text/html" || strings.HasPrefix(contentType, "text/html;") {
-			var err error
-			data, err = replaceURLsInHTML(base, data, initialLoc == "")
-			if err != nil {
-				log.Fatal(err)
-			}
-			if initialLoc == "" {
-				initialLoc = contentLocation
-			}
+		if cid := part.Header.Get("Content-ID"); cid != "" {
+			cid = strings.Trim(cid, "<>")
+			cid2loc[cid] = contentLocation
 		}
-		files[contentLocation] = file{contentType, data}
+
+		contentType := part.Header.Get("Content-Type")
+		initial := false
+		if initialLoc == "" && (contentType == "text/html" || strings.HasPrefix(contentType, "text/html;")) {
+			initialLoc = contentLocation
+			initial = true
+		}
+		files[contentLocation] = &file{contentType, base, data, initial}
 	}
 
 	if initialLoc == "" {
 		log.Fatal("no HTML pages to display")
+	}
+
+	for _, file := range files {
+		if ct := file.contentType; ct == "text/css" {
+			file.data = modifyCSS(file.base, file.data)
+		} else if ct == "text/html" || strings.HasPrefix(ct, "text/html;") {
+			var err error
+			file.data, err = modifyHTML(file.base, file.data, file.initial)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(handler))
