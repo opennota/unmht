@@ -70,7 +70,7 @@ func replaceURLsInCSS(base *url.URL, data []byte) []byte {
 	return rURL.ReplaceAllFunc(data, func(d []byte) []byte {
 		u := string(d[4 : len(d)-1])
 		u = strings.Trim(u, `"'`)
-		if strings.HasPrefix(u, "data:") {
+		if strings.HasPrefix(u, "data:") || strings.HasPrefix(u, "mailto:") {
 			return d
 		}
 		u = makeAbs(base, u)
@@ -102,7 +102,7 @@ func replaceURLsInHTML(base *url.URL, data []byte, addOnLoad bool) ([]byte, erro
 				return
 			}
 			v, _ := sel.Attr(attr)
-			if strings.HasPrefix(v, "data:") {
+			if strings.HasPrefix(v, "data:") || strings.HasPrefix(v, "mailto:") {
 				return
 			}
 			v = makeAbs(base, v)
