@@ -34,6 +34,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/net/html/charset"
+
 	"github.com/PuerkitoBio/goquery"
 	"github.com/andybalholm/cascadia"
 	"github.com/pkg/browser"
@@ -44,6 +46,7 @@ type file struct {
 	base        *url.URL
 	data        []byte
 	initial     bool
+	converted   bool
 }
 
 var (
@@ -85,10 +88,21 @@ func modifyCSS(base *url.URL, data []byte) []byte {
 	})
 }
 
-func modifyHTML(base *url.URL, data []byte, addOnLoad bool) ([]byte, error) {
+func modifyHTML(base *url.URL, data []byte, addOnLoad, converted bool) ([]byte, error) {
 	d, err := goquery.NewDocumentFromReader(bytes.NewReader(data))
 	if err != nil {
 		return nil, err
+	}
+
+	if converted {
+		d.Find("meta[http-equiv], meta[charset]").Each(func(_ int, sel *goquery.Selection) {
+			httpEq, ok := sel.Attr("http-equiv")
+			if ok && strings.ToLower(httpEq) == "content-type" {
+				sel.SetAttr("content", "text/html; charset=utf-8")
+			} else if !ok {
+				sel.SetAttr("charset", "utf-8")
+			}
+		})
 	}
 
 	redefinedBase := d.Find("head > base[href]")
@@ -255,7 +269,7 @@ func main() {
 			initialLoc = contentLocation
 			initial = true
 		}
-		files[contentLocation] = &file{contentType, base, data, initial}
+		files[contentLocation] = &file{contentType, base, data, initial, false}
 	}
 
 	if initialLoc == "" {
@@ -266,8 +280,20 @@ func main() {
 		if ct := file.contentType; ct == "text/css" {
 			file.data = modifyCSS(file.base, file.data)
 		} else if ct == "text/html" || strings.HasPrefix(ct, "text/html;") {
+			encoding, name, certain := charset.DetermineEncoding(file.data, file.contentType)
+			if name != "utf-8" && !(name == "windows-1252" && !certain) {
+				decoded, err := encoding.NewDecoder().Bytes(file.data)
+				if err != nil {
+					log.Fatal(err)
+				}
+				file.data = decoded
+				if strings.Contains(file.contentType, ";") {
+					file.contentType = strings.SplitN(file.contentType, ";", 2)[0]
+				}
+				file.converted = true
+			}
 			var err error
-			file.data, err = modifyHTML(file.base, file.data, file.initial)
+			file.data, err = modifyHTML(file.base, file.data, file.initial, file.converted)
 			if err != nil {
 				log.Fatal(err)
 			}
