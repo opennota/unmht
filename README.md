@@ -7,10 +7,10 @@ work with Firefox Quantum; nor there is another add-on which supports opening
 existing MHT files.  So here is a command-line tool which allows one to view
 previously saved MHT web archives in a browser.
 
-## Installation
+## Install
 
     go get -u github.com/opennota/unmht
 
-## Usage
+## Use
 
     unmht previously-saved.mht
